@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Clip2Text · 抖音文案提取{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card shadow-sm">
+            <div class="card-body p-4">
+                <h4 class="card-title mb-3">📋 粘贴分享链接</h4>
+                <p class="text-muted small mb-3">每行一条，系统自动识别链接</p>
+
+                <div class="mb-3">
+                    <textarea id="shareText" class="form-control" rows="6"
+                              placeholder=""></textarea>
+                </div>
+
+                <!-- 识别结果预览 -->
+                <div id="previewArea" class="mb-3 d-none">
+                    <div class="card bg-light">
+                        <div class="card-body py-2 small">
+                            <div id="previewContent"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="d-flex justify-content-between align-items-center">
+                    <span id="linkCount" class="text-muted small">已识别 <strong>0</strong> 条有效链接</span>
+                    <button id="submitBtn" class="btn btn-primary" disabled>
+                        🚀 开始提取
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 使用说明 -->
+        <div class="card shadow-sm mt-3">
+            <div class="card-body">
+                <h6 class="mb-2">💡 使用说明</h6>
+                <ol class="small text-muted mb-0">
+                    <li>在 App 打开视频 → 点分享 → 选择"复制链接"</li>
+                    <li>粘贴到上方文本框（可一次粘贴多条）</li>
+                    <li>系统自动识别链接，点击"开始提取"</li>
+                    <li>等待处理完成，下载文案、视频或音频</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_head %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // 前端 URL 提取逻辑
+    const TEXTAREA = document.getElementById('shareText');
+    const PREVIEW = document.getElementById('previewArea');
+    const PREVIEW_CONTENT = document.getElementById('previewContent');
+    const LINK_COUNT = document.getElementById('linkCount');
+    const SUBMIT_BTN = document.getElementById('submitBtn');
+
+    if (!TEXTAREA || !SUBMIT_BTN) return; // 安全兜底
+
+    // 短编码前缀黑名单（排除 http:/ https:/ 等协议名误判）
+    const SHORT_CODE_BLACKLIST = new Set(['http', 'https', 'ftp', 'sftp', 'file', 'ws', 'wss',
+                                           'rtmp', 'rtsp', 'mms']);
+
+    function extractUrls(text) {
+        const lines = text.split('\n').filter(l => l.trim());
+        const results = [];
+
+        for (const line of lines) {
+            // 策略1: 匹配任意 http/https URL（不限域名、不限平台）
+            let match = line.match(/https?:\/\/[a-zA-Z0-9][-a-zA-Z0-9.]*[a-zA-Z0-9](?:\/[^\s"'<>,，。！？；：)]*)?/);
+            if (match) {
+                const url = match[0].replace(/\/$/, '');
+                results.push({ raw: line, url, ok: true });
+                continue;
+            }
+            // 策略2: 短编码模式 xxx:/
+            match = line.match(/([a-zA-Z0-9_-]{3,16}):\//);
+            if (match && !SHORT_CODE_BLACKLIST.has(match[1].toLowerCase())) {
+                const url = 'https://v.douyin.com/' + match[1] + '/';
+                results.push({ raw: line, url, ok: true });
+                continue;
+            }
+            results.push({ raw: line, url: null, ok: false });
+        }
+        return results;
+    }
+
+    function updatePreview() {
+        const text = TEXTAREA.value;
+        if (!text.trim()) {
+            PREVIEW.classList.add('d-none');
+            LINK_COUNT.innerHTML = '已识别 <strong>0</strong> 条有效链接';
+            SUBMIT_BTN.disabled = true;
+            return;
+        }
+
+        const results = extractUrls(text);
+        const validCount = results.filter(r => r.ok).length;
+        LINK_COUNT.innerHTML = `已识别 <strong>${validCount}</strong> 条有效链接`;
+
+        let html = '<div class="mb-1 fw-bold">🔍 识别结果预览</div>';
+        results.forEach((r, i) => {
+            if (r.ok) {
+                html += `<div class="text-success">✅ 第${i+1}行 → 📎 ${r.url}</div>`;
+            } else {
+                html += `<div class="text-warning">⚠️ 第${i+1}行 未识别到链接，已忽略</div>`;
+            }
+        });
+        PREVIEW_CONTENT.innerHTML = html;
+        PREVIEW.classList.remove('d-none');
+        SUBMIT_BTN.disabled = validCount === 0;
+    }
+
+    TEXTAREA.addEventListener('input', updatePreview);
+
+    // 提交任务
+    SUBMIT_BTN.addEventListener('click', async function() {
+        const text = TEXTAREA.value.trim();
+        if (!text) return;
+
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length === 0) return;
+
+        SUBMIT_BTN.disabled = true;
+        SUBMIT_BTN.innerHTML = '⏳ 提交中...';
+
+        try {
+            const resp = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ texts: lines }),
+            });
+
+            if (!resp.ok) {
+                const err = await resp.json();
+                alert('提交失败: ' + (err.detail?.message || err.detail || '未知错误'));
+                SUBMIT_BTN.disabled = false;
+                SUBMIT_BTN.innerHTML = '🚀 开始提取';
+                return;
+            }
+
+            const data = await resp.json();
+            window.location.href = `/tasks/${data.task_id}`;
+
+        } catch (err) {
+            alert('网络错误: ' + err.message);
+            SUBMIT_BTN.disabled = false;
+            SUBMIT_BTN.innerHTML = '🚀 开始提取';
+        }
+    });
+});
+</script>
+{% endblock %}

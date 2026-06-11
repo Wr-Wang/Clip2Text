@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Clip2Text · 任务详情{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="mb-0">📋 任务详情</h4>
+            <a href="/" class="btn btn-outline-secondary btn-sm">🔄 返回首页</a>
+        </div>
+
+        <!-- 任务状态 -->
+        <div id="taskHeader" class="card shadow-sm mb-3">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <span id="taskStatusBadge" class="badge bg-secondary fs-6">⏳ 加载中...</span>
+                    <span id="taskProgress" class="text-muted small"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 任务项列表 -->
+        <div id="taskItems" class="d-flex flex-column gap-3">
+            <!-- 由 JS 动态渲染 -->
+        </div>
+
+        <!-- 批量下载 (任务完成后显示) -->
+        <div id="batchDownload" class="d-none mt-3">
+            <div class="card shadow-sm">
+                <div class="card-body text-center">
+                    <a id="batchDownloadLink" class="btn btn-primary btn-lg" href="#">
+                        📦 全部打包下载
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_head %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const TASK_ID = '{{ task_id }}';
+    const POLL_INTERVAL = 3000; // 3 秒
+
+    const taskItems = document.getElementById('taskItems');
+    const statusBadge = document.getElementById('taskStatusBadge');
+    const progressText = document.getElementById('taskProgress');
+    const batchDownload = document.getElementById('batchDownload');
+
+    if (!taskItems || !statusBadge) return; // 安全兜底
+
+    function statusColor(status) {
+        const colors = {
+            'pending': 'secondary',
+            'extracting_url': 'info',
+            'parsing': 'info',
+            'downloading': 'primary',
+            'extracting_audio': 'primary',
+            'transcribing': 'warning',
+            'completed': 'success',
+            'failed': 'danger',
+        };
+        return colors[status] || 'secondary';
+    }
+
+    function statusLabel(status) {
+        const labels = {
+            'pending': '等待处理',
+            'extracting_url': '提取链接中',
+            'parsing': '解析视频中',
+            'downloading': '下载视频中',
+            'extracting_audio': '提取音频中',
+            'transcribing': '语音识别中',
+            'completed': '已完成',
+            'failed': '失败',
+        };
+        return labels[status] || status;
+    }
+
+    function renderItems(items) {
+        let html = '';
+        for (const item of items) {
+            const rawShort = item.raw_text.length > 60 ? item.raw_text.slice(0, 60) + '...' : item.raw_text;
+            const color = statusColor(item.status);
+            const label = statusLabel(item.status);
+            const progressPct = Math.round(item.progress * 100);
+
+            html += `<div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="small text-muted mb-1">📄 ${escapeHtml(rawShort)}</div>`;
+
+            if (item.url) {
+                html += `<div class="small text-info mb-1">🔗 ${escapeHtml(item.url)}</div>`;
+            }
+            if (item.video_title) {
+                html += `<div class="small fw-bold mb-1">📹 ${escapeHtml(item.video_title)}</div>`;
+            }
+
+            // 状态 + 进度条
+            html += `<div class="d-flex align-items-center gap-2 mb-2">
+                <span class="badge bg-${color}">${label}</span>
+                <div class="progress flex-grow-1" style="height: 8px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated"
+                         role="progressbar" style="width: ${progressPct}%;" aria-valuenow="${progressPct}" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+                <span class="small text-muted">${progressPct}%</span>
+            </div>`;
+
+            // 各步骤耗时
+            if (item.timing && Object.keys(item.timing).length > 0) {
+                const steps = Object.entries(item.timing);
+                const totalTime = steps.reduce((sum, [, sec]) => sum + sec, 0);
+                html += `<div class="small text-muted mb-1">⏱️ ${steps.map(([name, sec]) =>
+                    `${name} <strong>${sec}s</strong>`
+                ).join(' · ')} · 合计 <strong>${totalTime.toFixed(1)}s</strong></div>`;
+            }
+
+            // 错误信息
+            if (item.error) {
+                html += `<div class="alert alert-danger py-1 small mb-1">❌ ${escapeHtml(item.error)}</div>`;
+            }
+
+            // 文案预览（已完成）
+            if (item.transcript) {
+                const preview = item.transcript.length > 200 ? item.transcript.slice(0, 200) + '...' : item.transcript;
+                html += `<div class="bg-light rounded p-2 mb-2 small" style="max-height: 100px; overflow-y: auto;">${escapeHtml(preview)}</div>`;
+            }
+
+            // 三列下载按钮（完成后）
+            if (item.status === 'completed') {
+                const baseUrl = `/api/files/${TASK_ID}/${item.id}`;
+                html += `<div class="d-flex gap-2">
+                    <a href="${baseUrl}/transcript" class="btn btn-sm btn-outline-success">📥 文案.txt</a>
+                    <a href="${baseUrl}/video" class="btn btn-sm btn-outline-primary">🎬 视频.mp4</a>
+                    <a href="${baseUrl}/audio" class="btn btn-sm btn-outline-warning">🎵 音频.wav</a>
+                </div>`;
+            }
+
+            html += `</div></div>`;
+        }
+        taskItems.innerHTML = html;
+    }
+
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function updateHeader(data) {
+        const total = data.total_count;
+        const done = data.completed_count + data.failed_count;
+        const isComplete = data.status === 'completed' || data.status === 'failed';
+
+        const colorMap = {
+            'pending': 'secondary',
+            'running': 'primary',
+            'completed': 'success',
+            'failed': 'danger',
+        };
+        const labelMap = {
+            'pending': '等待处理',
+            'running': '处理中',
+            'completed': '已完成',
+            'failed': '部分失败',
+        };
+
+        statusBadge.className = `badge bg-${colorMap[data.status] || 'secondary'} fs-6`;
+        statusBadge.textContent = `${labelMap[data.status] || data.status} (${done}/${total})`;
+        if (progressText) {
+            progressText.textContent = `已完成 ${data.completed_count} / 失败 ${data.failed_count}`;
+        }
+
+        // 批量下载按钮
+        if (batchDownload && data.completed_count > 0 && isComplete) {
+            batchDownload.classList.remove('d-none');
+            document.getElementById('batchDownloadLink').href = `/api/tasks/${TASK_ID}/download`;
+        }
+    }
+
+    async function pollStatus() {
+        try {
+            const resp = await fetch(`/api/tasks/${TASK_ID}`);
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            const data = await resp.json();
+            renderItems(data.items);
+            updateHeader(data);
+
+            // 继续轮询（如果未完成）
+            const isComplete = data.status === 'completed' || data.status === 'failed';
+            if (!isComplete) {
+                setTimeout(pollStatus, POLL_INTERVAL);
+            }
+        } catch (err) {
+            console.error('Poll error:', err);
+            taskItems.innerHTML =
+                `<div class="alert alert-danger">加载失败，请刷新页面重试</div>`;
+        }
+    }
+
+    // 开始轮询
+    pollStatus();
+});
+</script>
+{% endblock %}
