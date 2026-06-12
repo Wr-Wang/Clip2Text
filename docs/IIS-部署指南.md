@@ -373,7 +373,7 @@ curl http://localhost/api/health
 
 1. 打开浏览器访问 `http://localhost`
 2. 页面应正常加载（Bootstrap 样式从 CDN 加载，需要互联网连接）
-3. 尝试粘贴一条抖音分享文本并提交任务
+3. 尝试粘贴一条视频分享文本并提交任务
 
 #### 6.4 检查日志
 

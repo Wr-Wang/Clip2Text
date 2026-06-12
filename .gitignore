@@ -24,6 +24,9 @@ data/transcripts/*
 # Whisper 模型缓存（首次下载后保留，可重新下载）
 ~/.cache/whisper/
 
+# 运行时日志
+backend/logs/
+
 # IDE
 .idea/
 .vscode/
